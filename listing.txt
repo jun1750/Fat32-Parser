@@ -1,0 +1,1272 @@
+/**********************************************************************
+  Module: fat32.h
+  Author: Junseok Lee
+
+  Purpose: Initializes and manages FAT32 structs. Reads in data to
+  the fat32Head struct, fat32BS_struct, FSInfo_struct and 
+  fat32Dir_struct. 
+
+**********************************************************************/
+#ifndef FAT32_H
+#define FAT32_H
+
+#include <inttypes.h>
+#include <stdio.h>
+
+/* boot sector constants */
+#define BS_OEMName_LENGTH 8
+#define BS_VolLab_LENGTH 11
+#define BS_FilSysType_LENGTH 8 
+#define BS_Ext_BOOT_SIG 0x29
+#define BS_SIG_A_VAL 0x55
+#define BS_SIG_B_VAL 0xAA
+#define FAT32_DEFAULT 0x00
+
+/* directory sector constants */
+#define ATTR_READ_ONLY 0x01
+#define ATTR_HIDDEN    0x02
+#define ATTR_SYSTEM    0x04
+#define ATTR_VOLUME_ID 0x08
+#define ATTR_DIRECTORY 0x10
+#define ATTR_ARCHIVE   0x20
+#define FREE_DIR   	   0xE5
+#define KANJI_DIR      0x05
+#define V_ARCHIVE      0x4C
+#define INV_DIR	       0xF
+#define INV_ARCHIVE    0x22
+
+/* FSInfo sector constants */
+#define FSI_Reserved1_LENGTH 480
+#define FSI_Reserved2_LENGTH 12
+#define FSI_LEADSIG 0x41615252
+#define FSI_TRAILSIG 0xAA550000
+
+/* fat32Dir  constants */
+#define DIR_NAME_LENGTH 11
+#define ROOT_DIR_CLUS_NUM 2
+
+/* Cluster constants */
+#define EOC 0x0FFFFFF8
+#define CLUSENT_AND_OPERATOR 0x0FFFFFFF
+#define FETCH_AND_OPERATOR 0xF0000000
+#define FREE_CLUS_UNKNOWN 0xFFFFFFFF
+
+/* Offset constants */
+#define OFF_READ_SZ 32
+
+/* Seek/Read error constants */
+#define SEEK_ERR -1
+#define READ_ERR -1
+
+#pragma pack(push)
+#pragma pack(1)
+
+/* FAT32BS STRUCT,
+   Represents a FAT32 Boot Sector */
+struct fat32BS_struct {
+	char BS_jmpBoot[3];	//Jump instruction to boot code.
+	char BS_OEMName[BS_OEMName_LENGTH];
+	uint16_t BPB_BytesPerSec; //Count of bytes per sector
+	uint8_t BPB_SecPerClus; //Number of sectors per allocation unit.
+	uint16_t BPB_RsvdSecCnt; //Number of reserved sectors in the Reserved region of the volume
+	uint8_t BPB_NumFATs;  //count of FAT data structures on the volume
+	uint16_t BPB_RootEntCnt; //FAT32 volumes, this field set to 0
+	uint16_t BPB_TotSec16;  //# of 16-bit count of sectors. FAT32 volumes, this field set to 0
+	uint8_t BPB_Media;	//type of meida of the volume
+	uint16_t BPB_FATSz16;  //FAT size 16-bit. FAT32 volumes, this field set to 0
+	uint16_t BPB_SecPerTrk; //Sectors per track
+	uint16_t BPB_NumHeads; //Number of heads for interrupt 0x13
+	uint32_t BPB_HiddSec; //Count of hidden sectors
+	uint32_t BPB_TotSec32; //total count of sectors on the volume
+	uint32_t BPB_FATSz32; //FAT32 32-bit count of sectors occupied by ONE FAT
+	uint16_t BPB_ExtFlags; //External flags defined in FAT32
+	uint8_t BPB_FSVerLow; //Low byte: minor revision number
+	uint8_t BPB_FSVerHigh; //High byte: major revision number
+	uint32_t BPB_RootClus; //cluster number of the first cluster of the root directory
+	uint16_t BPB_FSInfo; //Sector # of FSINFO struct in the resvd area of the FAT32 volume (usually 1).
+	uint16_t BPB_BkBootSec; //sector number in the rsvd area of the volume of a copy of the boot record.
+	char BPB_reserved[12]; //Reserved for future expansion
+	uint8_t BS_DrvNum;  //drive number (hard disk or floppy disk)
+	uint8_t BS_Reserved1; //Reserved for windows use
+	uint8_t BS_BootSig; //extended boot signature
+	uint32_t BS_VolID;	//volume serial number
+	char BS_VolLab[BS_VolLab_LENGTH]; //volume label
+	char BS_FilSysType[BS_FilSysType_LENGTH]; //file system type, info only
+	char BS_CodeReserved[420];	//reserved code
+	uint8_t BS_SigA;  //boot sector sig A
+	uint8_t BS_SigB;  //boot sector sig B
+};
+#pragma pack(pop)
+
+typedef struct fat32BS_struct fat32BS;
+
+
+#pragma pack(push)
+#pragma pack(1)
+
+/* FAT32 Head struct, contains a pointer 
+   to the boot sector struct, FSinfo sector
+   struct and the directory struct. */
+struct fat32Head {
+
+	struct fat32BS_struct * bs;
+	struct FSInfo_struct * fsi;
+	struct fat32Dir_struct * dir;
+
+};
+#pragma pack(pop)
+typedef struct fat32Head fat32Head;
+
+
+/* FSINFO Struct
+   Represents a FAT32 FSInfo Sector*/
+#pragma pack(push)
+#pragma pack(1)
+struct FSInfo_struct {
+
+	uint32_t FSI_LeadSig; //Signature (0x41615252)
+	unsigned char FSI_Reserved1[FSI_Reserved1_LENGTH];
+	uint32_t FSI_StrucSig; //Signature (0x61417272)
+	uint32_t FSI_Free_Count; //Number of free clusters
+	uint32_t FSI_Nxt_Free; //represents the next free cluster (assigned to last allocated cluster)
+	unsigned char FSI_Reserved2[FSI_Reserved2_LENGTH];
+	uint32_t FSI_TrailSig; //Signature (0xAA550000)
+
+};
+#pragma pack(pop)
+
+typedef struct FSInfo_struct FSInfo;
+
+
+/* DIrectory Struct
+   Represents a FAT 32 directory */
+#pragma pack(push)
+#pragma pack(1)
+struct fat32Dir_struct {
+	char DIR_Name[DIR_NAME_LENGTH];	//8 bits + 3 chars
+	uint8_t DIR_Attr; ///File attributes: ATTR_READ_ONLY = 0x01, ATTR_HIDDEN = 0x02, ATTR_SYSTEM = 0x04, ...
+	uint8_t DIR_NTRes;	//8 bits used by windows NT.
+	uint8_t DIR_CrtTimeTenth;	//millisecond stamp @ file creation time
+	uint16_t DIR_CrtTime; //time file created (24bits)
+	uint16_t DIR_CrtDate; //date file created (16bits)
+	uint16_t DIR_LstAccDate; //last access date (16bits)
+	uint16_t DIR_FstClusHI; //high word of this entry's first cluster number
+	uint16_t DIR_WrtTime; //time of last write (16bits)
+	uint16_t DIR_WrtDate; //date of last write (16bits)
+	uint16_t DIR_FstClusLO; //starting cluster # in FAT (file allocation table)
+	uint32_t DIR_FileSize; //32-bit DWORD, holds file size in byte (32 bits)
+};
+#pragma pack(pop)
+typedef struct fat32Dir_struct fat32Dir;
+
+/* Initializes a fat32 head using the given file
+   descriptor. Allocates the head and initializes its boot
+   sector, FSInfo sector and Directory sctor. Verifies that
+   each initialization was successful and returns the head. */
+fat32Head* createHead(int fd);
+
+/* Reads and initializes the boot sector. */
+void bootSectorInit(int fd, fat32Head * head);
+
+/* Reads and initializes the directory sector */
+void dirInit(int fd, fat32Head * head, uint32_t dirClusAddr);
+
+/* Reads and initializes the FSInfo sector */
+void fsiInit(int fd, fat32Head * head, uint32_t fsiSecNum);
+
+/* Reads a directory using the given sector number (sectorNum),
+   and a directory number (dirNum). Returns a malloc'd 
+   fat32Dir pointer */
+fat32Dir *readDir(int fd, fat32Head * head, uint32_t sectorNum, uint32_t dirNum);
+
+/* Reads a directory using the given sector number (sectorNum),
+   and an offseet number (offset). Returns a malloc'd 
+   uint32_t pointer */
+uint32_t * readFromOffset(int fd, fat32Head * head, uint32_t secNum, uint32_t offset);
+
+/* Deallocates head and all its pointers  */
+void cleanupHead(fat32Head *h);
+
+#endif
+/**********************************************************************
+   Module: shell.h
+   Author: Junseok Lee
+
+   Purpose: Manages the shell command line. 
+   Prints information using command INFO, lists all contents in the 
+   current directory using command DIR, moves to a specified directory 
+   using command CD and downloads a specified file using command GET. 
+   The shell terminates when EOF signal (CTRL + D) is received.
+
+**********************************************************************/
+#ifndef SHELL_H
+#define SHELL_H
+
+#include "fat32.h"
+
+#define BUF_SIZE 256
+#define BYTE_IN_BITS 8
+
+#define MEDIA_FIXED 0xF8
+#define MEDIA_REMVBLE 0xF0
+
+#define INT_32 32
+#define FAT12_NUMCLUS 4085
+#define FAT16_NUMCLUS 65525
+
+#define MIR_CHECK_BIT 7
+#define IS_MIR 0
+#define NOT_MIR 1
+
+#define HARD_DRV 0x80
+#define FLOPPY_DRV 0x00
+
+#define M_UNIT 1000000 
+#define G_UNIT 1000000000 
+
+#define ADDR_ZERO 0x00
+#define HEX_TEN 0x10
+
+#define DOT "."
+#define DOTDOT ".."
+
+#define SPACE_CHAR " "
+
+#define FIRST_DIR_INDEX 0
+#define DODIR_FIRSTRUN 1
+#define DODIR_NONFIRSTRUN 0
+
+#define SINGLE_READ 1
+#define FILE_PERMISSION 0644
+
+#define OFFSET_MULTIPLIER 4
+
+#define NULL_TERM '\0'
+#define EXT_DIST 4
+#define VALID_ASCII_START 33
+#define VALID_ASCII_END 126
+
+/* Manages the main shell loop. Supports commands INFO,
+   DIR, CD and GET. The shell loop ends only when EOF signal 
+   (CTRL + D) is received. */
+void shellLoop(int fd);
+
+/* Prints Device information, Geometry information and FS Info
+   information for the inserted volume */
+void printInfo(fat32Head *h);
+
+/* Reads root directory cluster data and acquires volume ID */
+char * getVolumeID(fat32Head *h);
+
+/* Manages the dir command. Lists all valid files and directories 
+   contained in the current folder */ 
+void doDir(fat32Head *h, uint32_t curDirClus, int firstRun);
+
+/* Performs and manages the cd command. Switches to the directory 
+   specified in the shell's command line, if the directory exists
+   in the shell's current directory. */
+uint32_t doCD(fat32Head *h, uint32_t curDirClus, char buffer[BUF_SIZE]);
+
+/* Performs and manages the get command. Finds the matching file in the current
+   directory with the file name specified from the command line, and downloads 
+   that file to an output file of the same name in the user's current path in 
+   their terminal. Uses helper recursive function writeFile to complete the download. */
+void doDownload(fat32Head *h, uint32_t curDirClus, char buffer[BUF_SIZE]);
+
+/* Recursive read and write to output file for every cluster.
+   When last cluster is reached, it writes using the remaining
+   data in that last cluster instead of the size of the cluster.  */
+void writeFile(fat32Head *h, uint32_t clusNum, int outFD, int fileSize);
+
+/* Calculates the next cluster of the FAT, by calculating the offset, this sector 
+   number in the FAT, this fat ent offset.  */
+uint32_t getNextClus(fat32Head *h, uint32_t clusNum);
+
+/* Calculates the location of the first cluster of the FAT, using math and 
+   variables given by the FAT32 white paper.  */
+uint32_t getFirstSectorOfClus(fat32Head *h, uint32_t clusterNumber);
+
+/* remove white spaces in directory and file names,
+   formats file name extensions periods (e.g., .txt), 
+   and adds null terminate string of directory name. */
+void formatDirectory(fat32Dir* dir);
+
+/* Removes Spaces from the string <source>, and
+   stores the result in the string <dest> */
+void removeSpace(char* source, char* dest);
+
+/* Adds a dot before the extension in the string from 
+   <source>, and stores the result in the string <dest> */
+void addDot(char* source, char* dest);
+
+/* Calculates the total space (in bytes) free in the volume. */
+uint64_t getFreeSpace(fat32Head * h);
+
+/* Checks directory/file name to ensure the name is valid.
+   A name is valid if the name contains alphabets, numbers, or
+   is any standard keyboard character in ASCII */
+int checkName( char s[] );
+
+/* File descriptor to the opened volume */
+int fileDesc;
+
+#endif
+/**********************************************************************
+  Module: fat32.c
+  Author: Junseok Lee
+
+ Initializes and manages FAT32 structs.
+
+**********************************************************************/
+#define _FILE_OFFSET_BITS 64
+
+#include "fat32.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+fat32Head* createHead(int fd)
+{
+    /* Allocating head values */
+    fat32Head * head = (fat32Head*) malloc(sizeof(fat32Head));
+    head->bs = (fat32BS*) malloc(sizeof(fat32BS));
+    head->fsi = (FSInfo*) malloc(sizeof(FSInfo));
+    head->dir = (fat32Dir*) malloc(sizeof(fat32Dir));
+    if(head == NULL || head->bs == NULL || head->fsi == NULL || head->dir == NULL) {
+        perror("createHead malloc error:");
+        exit(EXIT_FAILURE);
+    }
+
+    /* BOOT SECTOR init */
+    bootSectorInit(fd, head);
+    
+    /* check BS signature bytes */
+    if(head->bs->BS_BootSig != BS_Ext_BOOT_SIG || head->bs->BS_SigA != BS_SIG_A_VAL || head->bs->BS_SigB != BS_SIG_B_VAL){
+        printf("boot sector signature byte error: Drive not loaded correctly.");
+        exit(EXIT_FAILURE);
+    }
+    /* check if drive is not FAT16 */
+    if(head->bs->BPB_FATSz16 != FAT32_DEFAULT || head->bs->BPB_TotSec16 != FAT32_DEFAULT || head->bs->BPB_RootEntCnt != FAT32_DEFAULT){
+        printf("The drive is FAT16. Only FAT32 is supported.");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Directory init with the root directory cluster */ 
+    dirInit(fd,head,head->bs->BPB_RootClus);
+
+    /* FSInfo init */
+    fsiInit(fd, head, head->bs->BPB_FSInfo);
+
+    /* verify directory entry */
+    if(head->dir->DIR_Attr > 0x20){
+        printf("Error in reading Directory...");
+        exit(EXIT_FAILURE);
+    }    
+
+    return head;
+}
+void bootSectorInit(int fd, fat32Head * head){
+    
+        /* Read boot sector */
+        int length = read(fd,(void*)head->bs,sizeof(fat32BS));
+
+		if(length < sizeof(fat32BS)){
+			perror("bootSectorInit read error");
+			exit(EXIT_FAILURE);
+		}      
+
+        /* null terminate strings */
+        head->bs->BS_VolLab[BS_VolLab_LENGTH-1] = '\0'; 
+        head->bs->BS_FilSysType[BS_FilSysType_LENGTH-1] = '\0';
+}
+
+void dirInit(int fd, fat32Head * head, uint32_t dirClusAddr){ 
+
+    int error;
+
+    /* Seek to directory sector */
+    error = lseek(fd, dirClusAddr, SEEK_SET);
+
+    if(error == SEEK_ERR){
+		perror("bootSectorInit seek error");
+		exit(EXIT_FAILURE);
+	}   
+
+    /* Read directory sector */
+    error = read(fd, (void*)head->dir,sizeof(fat32Dir));
+    if(error < sizeof(fat32Dir)){
+		perror("bootSectorInit read error");
+		exit(EXIT_FAILURE);
+	}   
+
+    /* null terminate strings */
+    head->dir->DIR_Name[DIR_NAME_LENGTH-1] = '\0';
+
+}
+void fsiInit(int fd, fat32Head * head, uint32_t fsiSecNum){
+    
+    int error;
+
+    /* Seek to FSInfo sector */
+    error = lseek(fd, fsiSecNum*head->bs->BPB_BytesPerSec, SEEK_SET);
+
+    if(error == SEEK_ERR){
+		perror("fsiInit seek error");
+		exit(EXIT_FAILURE);
+	}   
+
+    /* Read FSInfo sector */
+    error = read(fd, (void*)head->fsi,sizeof(FSInfo));
+    
+    if(error < sizeof(FSInfo)){
+		perror("fsiInit read error");
+		exit(EXIT_FAILURE);
+	}   
+
+    /* Verifying the read was indeed in the FSInfo sector */
+    if(head->fsi->FSI_LeadSig != FSI_LEADSIG || head->fsi->FSI_TrailSig != FSI_TRAILSIG)
+    {
+        printf("Error in reading FSInfo...");
+        printf("\nFSI_TrailSig value: %x, FSI_LeadSig value: %x\n", head->fsi->FSI_TrailSig, head->fsi->FSI_LeadSig);
+        exit(EXIT_FAILURE);
+    }
+}
+
+fat32Dir *readDir(int fd, fat32Head * head, uint32_t secNum, uint32_t dirNum){
+
+    int error;
+    fat32Dir *currentDir = (fat32Dir*) malloc(sizeof(fat32Dir));
+
+    if(currentDir == NULL) {
+        perror("readDir malloc error:");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Seek to specified directory sector */
+    error = lseek(fd, secNum + dirNum, SEEK_SET);
+    
+    if(error == SEEK_ERR){
+		perror("readDir seek error");
+		exit(EXIT_FAILURE);
+	} 
+
+    /* Read specified directory sector */
+    error = read(fd,(void*)currentDir, sizeof(fat32Dir)); 
+        
+    if(error < sizeof(fat32Dir)){
+		perror("readDir read error");
+		exit(EXIT_FAILURE);
+	}   
+
+    return currentDir;
+}
+
+uint32_t * readFromOffset(int fd, fat32Head * head, uint32_t secNum, uint32_t offset){
+
+    int error;
+    uint32_t * buffer = (uint32_t*) malloc(secNum* sizeof(uint32_t));
+    if(buffer == NULL) {
+        perror("readFromOffset malloc error:");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Seek to specified sector using sector number and offset */
+    error = lseek(fd, secNum*head->bs->BPB_BytesPerSec + offset, SEEK_SET);
+        
+    if(error == SEEK_ERR){
+		perror("readFromOffset seek error");
+		exit(EXIT_FAILURE);
+	} 
+
+    /* Read specified sector and offset */
+    error = read(fd, buffer, OFF_READ_SZ);
+            
+    if(error < OFF_READ_SZ){
+		perror("readFromOffset read error");
+		exit(EXIT_FAILURE);
+	}  
+
+    return buffer;
+}
+
+void cleanupHead(fat32Head *h){
+	free(h->bs);
+    free(h->dir);
+    free(h->fsi);
+    free(h);
+}/**********************************************************************
+   Module: main.c
+   Author: Junseok Lee
+
+   Reads and opens the FAT32 volume image. Executes the shell loop.
+   Usage: ./fat32 <fat32_volume>
+
+**********************************************************************/
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "shell.h"
+
+int main(int argc, char *argv[]) 
+{
+	int fd;
+
+	if (argc != 2) 
+	{
+		printf("Usage: %s <file>\n", argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	char *file = argv[1];
+ 	fd = open(file, O_RDWR);
+	 
+	if (-1 == fd) 
+	{
+		perror("opening file: ");
+		exit(EXIT_FAILURE);
+	}
+
+	shellLoop(fd);
+
+	close(fd);
+}
+/**********************************************************************
+   Module: shell.c
+   Author: Junseok Lee
+
+   Manages the shell command line. Supports commands INFO,
+   DIR, CD and GET. The shell terminates when EOF signal 
+   (CTRL + D) is received.
+
+**********************************************************************/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include "shell.h"
+#include "fat32.h"
+#include <stdbool.h>
+
+#define CMD_INFO "INFO"
+#define CMD_DIR "DIR"
+#define CMD_CD "CD"
+#define CMD_GET "GET"
+#define CMD_PUT "PUT"
+
+
+void shellLoop(int fd) 
+{
+	int running = true;
+	uint32_t curDirClus;
+	char buffer[BUF_SIZE];
+	char bufferRaw[BUF_SIZE];
+
+	fileDesc = fd;
+
+	fat32Head *h = createHead(fd);
+
+	if (h == NULL)
+		running = false;
+
+	curDirClus = h->bs->BPB_RootClus;
+
+	while(running) 
+	{
+		printf(">");
+		if (fgets(bufferRaw, BUF_SIZE, stdin) == NULL) 
+		{
+			running = false;
+			continue;
+		}
+		bufferRaw[strlen(bufferRaw)-1] = '\0'; /* cut new line */
+		for (int i=0; i < strlen(bufferRaw)+1; i++)
+			buffer[i] = toupper(bufferRaw[i]);
+	
+		//INFO
+		if (strncmp(buffer, CMD_INFO, strlen(CMD_INFO)) == 0)
+			printInfo(h);	
+
+		//DIR
+		else if (strncmp(buffer, CMD_DIR, strlen(CMD_DIR)) == 0)
+			doDir(h, curDirClus, DODIR_FIRSTRUN);	
+
+
+		//CD
+		else if (strncmp(buffer, CMD_CD, strlen(CMD_CD)) == 0) 
+			curDirClus = doCD(h, curDirClus, buffer);
+
+		//GET
+		else if (strncmp(buffer, CMD_GET, strlen(CMD_GET)) == 0) 
+			doDownload(h, curDirClus, buffer);
+
+		//PUT (BONUS, IGNORE)
+		else if (strncmp(buffer, CMD_PUT, strlen(CMD_PUT)) == 0)			
+			printf("Bonus marks!\n");
+
+		else 
+			printf("\nCommand not found\n");
+	}
+	printf("\nExited...\n");
+	
+	cleanupHead(h);
+}
+
+void printInfo(fat32Head *h){
+
+	if(h == NULL) printf("failed print");
+	else{
+
+		/* --- Device Info ---- */
+
+		printf("\n---- Device Info ----");
+
+		printf("\nOEM Name: %s", h->bs->BS_OEMName);
+
+		printf("\nLabel: %s", h->bs->BS_VolLab);
+
+		printf("\nFile System Type: %s", h->bs->BS_FilSysType); 
+
+		printf("\nMedia Type: 0x%X", h->bs->BPB_Media);
+
+		//fixed vs removable media 
+    	if(h->bs->BPB_Media == MEDIA_FIXED){
+        	printf(" (fixed)");
+    	}
+		else if(h->bs->BS_DrvNum == MEDIA_REMVBLE){
+        	printf(" (removable)\n");
+    	}		
+		
+		/* DETERMINE THE COUNT OF SECTORS IN THE DATA REGION, ensure it's in FAT32 range */
+
+		//count of sectors occupied by root directory
+		uint32_t rootDirSectors = ((h->bs->BPB_RootEntCnt * INT_32) + (h->bs->BPB_BytesPerSec -1)) / h->bs->BPB_BytesPerSec;
+
+		//count of sectors in the data region
+		uint32_t dataSec = h->bs->BPB_TotSec32 - (h->bs->BPB_RsvdSecCnt + (h->bs->BPB_NumFATs * h->bs->BPB_FATSz32) + rootDirSectors);
+		
+		//count of clusters 
+		uint32_t countOfClusters = dataSec / h->bs->BPB_SecPerClus;
+
+		if(countOfClusters < FAT12_NUMCLUS){
+			printf("volume is FAT12. The supported volume is FAT32.");
+			exit(EXIT_FAILURE);
+		}
+		else if(countOfClusters < FAT16_NUMCLUS){
+			printf("volume is FAT16. The supported volume is FAT32.");
+			exit(EXIT_FAILURE);
+		}
+
+		/* Calculate total size in Bytes, GB and MB */ 		
+		uint64_t totSizeB = (uint64_t) h->bs->BPB_TotSec32 * (uint64_t) h->bs->BPB_BytesPerSec; //total size in bytes 
+		int totSizeMB =  totSizeB / M_UNIT;
+		double totSizeGB = (double)totSizeB / G_UNIT;  
+
+		printf("\nSize: %lu bytes (%dMB, %.4gGB)",totSizeB, totSizeMB, totSizeGB); 
+
+		printf("\nDrive Number: %u", h->bs->BS_DrvNum);
+
+		/* Drive type determination */ 
+    	if(h->bs->BS_DrvNum == HARD_DRV){
+        	printf(" (hard disk)\n");
+    	}
+		else if(h->bs->BS_DrvNum == FLOPPY_DRV){
+        	printf(" (floppy disk)\n");
+    	}
+		/* --- Device Info END ---- */
+
+
+		/* --- Geometry ---- */
+		printf("\n\n---- Device Info ----");
+		printf("\nBytes per Sector: %u", h->bs->BPB_BytesPerSec);
+		printf("\nSectors per Cluster: %u", h->bs->BPB_SecPerClus);
+		printf("\nTotal Sectors: %u", h->bs->BPB_TotSec32);
+		printf("\nGeom: Sectors per Track: %u", h->bs->BPB_SecPerTrk);
+		printf("\nGeom: Heads: %u", h->bs->BPB_NumHeads);
+		printf("\nHidden Sectors: %u", h->bs->BPB_HiddSec);
+		/* --- Geometry END ---- */
+
+
+		/* --- FS Info ---- */
+		printf("\n\n---- FS Info ----");
+		printf("\nVolume ID: %s", getVolumeID(h)); 
+		printf("\nVersion: %u:%u", h->bs->BPB_FSVerHigh,h->bs->BPB_FSVerLow);
+		printf("\nReserved Sectors: %u", h->bs->BPB_RsvdSecCnt);
+		printf("\nNumber of FATs: %u", h->bs->BPB_NumFATs);
+		printf("\nFAT Size: %u", h->bs->BPB_FATSz32);
+		
+		/*Checking Mirroed bit */
+		/*If 7th bit is 0 is yes, 1 means no (only one FAT active) */
+		uint16_t mirBit = ((h->bs->BPB_ExtFlags) >> MIR_CHECK_BIT) & NOT_MIR;
+
+		printf("\nMirrored FAT: %u", mirBit);
+		if ((mirBit) == IS_MIR){
+			printf(" (yes)");
+		}
+		else if((mirBit) == NOT_MIR){
+			printf(" (no)");
+		}
+		
+		printf("\nBoot Sector Backup Sector No: %u\n", h->bs->BPB_BkBootSec);
+		/* --- FS Info END ---- */		
+
+	} 
+}
+
+char * getVolumeID(fat32Head *h){
+	uint32_t firstSecOfClus = getFirstSectorOfClus(h,h->bs->BPB_RootClus);
+	fat32Dir * firstDir =readDir(fileDesc,h,firstSecOfClus,FIRST_DIR_INDEX);
+	char * volID = h->dir->DIR_Name;
+
+	if(firstDir != NULL){
+		strcpy(volID,firstDir->DIR_Name);
+		free(firstDir);
+	}
+	
+	return volID;
+
+
+}
+
+void doDir(fat32Head *h, uint32_t curDirClus, int firstRun){
+
+	int i, j;
+	int initial = firstRun;
+
+	if(firstRun) {
+		printf("DIRECTORY LISTING\n");
+	}
+	/* Get first data sector address of cluster*/
+	uint32_t firstSecOfClus = getFirstSectorOfClus(h,curDirClus);	
+
+	/* Traversing each directory in every cluster*/
+	for(i=0; i < h->bs->BPB_SecPerClus; i+= h->bs->BPB_BytesPerSec){
+
+		for(j=0; j< h->bs->BPB_BytesPerSec; j+=sizeof(fat32Dir)){ 
+
+			/* Get current directory in current sector */
+			fat32Dir * curDir;
+			curDir = readDir(fileDesc,h,firstSecOfClus+i,j);
+
+			/* remove white space & null terminate string of directory name */
+			formatDirectory(curDir);
+
+			/* show volume ID in the initial run */
+			if(initial){
+				printf("VOL_ID: %s\n", getVolumeID(h));
+				initial = false;
+			}
+
+			/* Exit if current directory address is zero */
+			if(curDir->DIR_Name[0] == ADDR_ZERO){
+				if(curDir) {
+					free(curDir);
+				}
+           	 	break;
+        	}
+
+			/* current directory is a DIRECTORY */
+			if((curDir->DIR_Attr & ATTR_DIRECTORY) == ATTR_DIRECTORY && curDir->DIR_Name[0] != FREE_DIR && 
+					curDir->DIR_Name[0] != KANJI_DIR && checkName(curDir->DIR_Name)){
+			            
+				char *dirName = curDir->DIR_Name;
+
+				if(curDir->DIR_Attr == ATTR_DIRECTORY || curDir->DIR_FileSize == ADDR_ZERO){
+					printf("<%s>\t\t%u\n",dirName, curDir->DIR_FileSize);
+				}
+				else{
+					//special types of files
+					printf("%s\t\t%u\n", curDir->DIR_Name ,curDir->DIR_FileSize);
+				}
+			}
+			/* current directory is a FILE */
+			else if ((curDir->DIR_Attr & ATTR_ARCHIVE) == ATTR_ARCHIVE && curDir->DIR_Name[0] != FREE_DIR && 
+						curDir->DIR_Name[0] != KANJI_DIR && checkName(curDir->DIR_Name)) {
+
+				if (curDir->DIR_Attr == ATTR_ARCHIVE){
+                    printf("%s\t\t%u\n", curDir->DIR_Name ,curDir->DIR_FileSize);
+                }
+				
+				//support for valid file types with attributes not equal to ATTR_ARCHIVE
+				else if(curDir[i].DIR_Attr != ADDR_ZERO && curDir[i].DIR_Attr != ATTR_READ_ONLY && 
+							curDir[i].DIR_Attr != ATTR_HIDDEN && curDir[i].DIR_Attr != ATTR_SYSTEM && 
+							curDir[i].DIR_Attr != ATTR_VOLUME_ID && curDir[i].DIR_Attr != ATTR_DIRECTORY && 
+							curDir[i].DIR_Attr != INV_DIR && curDir[i].DIR_Attr != INV_ARCHIVE){
+
+						printf("%s\t\t%u\n",curDir->DIR_Name, curDir->DIR_FileSize);
+
+				}
+            }
+
+			/* below is not needed for our implementation, but added for extra file name support */
+			/* Special Cases: Long Name */
+			else if ((curDir[i].DIR_Name[0] != FREE_DIR) && checkName(curDir->DIR_Name) && 
+            			(curDir[i].DIR_Attr == ATTR_READ_ONLY || curDir[i].DIR_Attr == ATTR_DIRECTORY || 
+				 		 curDir[i].DIR_Attr == ATTR_ARCHIVE || curDir[i].DIR_Attr == ATTR_HIDDEN || curDir->DIR_Attr == V_ARCHIVE)){ 
+				
+				printf("%s\t\t%u\n",curDir->DIR_Name, curDir->DIR_FileSize);
+
+			}
+			/* Extraneous valid special cases */
+			else if(curDir[i].DIR_Attr != ADDR_ZERO && curDir[i].DIR_Attr != ATTR_READ_ONLY && 
+					curDir[i].DIR_Attr != ATTR_HIDDEN && curDir[i].DIR_Attr != ATTR_SYSTEM &&
+					curDir[i].DIR_Attr != ATTR_VOLUME_ID && curDir[i].DIR_Attr != ATTR_DIRECTORY && 
+					curDir[i].DIR_Attr != INV_DIR && curDir[i].DIR_Attr != INV_ARCHIVE && checkName(curDir->DIR_Name)){
+				
+				printf("%s\t\t%u\n",curDir->DIR_Name, curDir->DIR_FileSize);
+
+			}
+
+			/* deallocate current directory */
+			if(curDir != NULL) free(curDir);
+    	}
+
+		/* Search File allocation table for next cluster chain, if exists */
+		uint32_t nextClus = getNextClus(h,curDirClus);
+
+		/* Recursively move on to the next cluster */
+		if (nextClus < EOC) {
+			doDir(h, nextClus,DODIR_NONFIRSTRUN);
+		}
+
+		/* Print Amount of bytes free on the first run */
+		if(firstRun) {
+			printf("----Bytes Free: %lu \n", getFreeSpace(h)); 
+			printf("----DONE\n");
+		}
+
+	}
+
+}
+
+uint32_t doCD(fat32Head *h, uint32_t curDirClus, char buffer[BUF_SIZE]){
+
+	bool isRoot = false;
+	char preFmtBuf[BUF_SIZE];
+	
+	strcpy(preFmtBuf, buffer);
+
+	/* token out the argument file name from the buffer */
+	char* arg = strtok(preFmtBuf, SPACE_CHAR);
+	arg = strtok(NULL, SPACE_CHAR);
+
+	/* to use as root directory check */
+	isRoot = (curDirClus == h->bs->BPB_RootClus);
+
+	/* no directory specified */
+	if(arg == NULL){
+		printf("Error: folder not found\n");
+		return curDirClus;
+	}
+
+	/* Get first data location of cluster */
+	uint32_t firstSecOfClus = getFirstSectorOfClus(h,curDirClus);
+
+	int i,j;
+	for(i=0; i < h->bs->BPB_SecPerClus; i+= h->bs->BPB_BytesPerSec){
+		
+		for(j=0; j< h->bs->BPB_BytesPerSec; j+=sizeof(fat32Dir)){
+			/* read each sector for directory */
+			fat32Dir * dir;
+			dir = readDir(fileDesc,h,firstSecOfClus+i,j);
+
+			/* Exit if current directory address is zero */
+			if(dir->DIR_Name[0] == ADDR_ZERO){
+				if(dir) {
+					free(dir);
+				}
+				break;
+			}
+
+			/* remove white space & null terminate string of directory name */
+			formatDirectory(dir);
+
+			if(dir->DIR_Attr == ATTR_DIRECTORY){
+				
+				/* cd "." */
+				if(strcmp(arg, DOT) == 0){
+					//current directory
+					if(!isRoot){
+						free(dir);
+						return curDirClus;
+					}
+					else{
+						printf("Error: Folder not found.\n");
+						free(dir);
+						return curDirClus;
+					}
+					
+					
+				}
+				/* cd ".." */
+				else if(strcmp(dir->DIR_Name, DOTDOT ) == 0 && strcmp(dir->DIR_Name,arg) == 0){
+					if(!isRoot){
+						/*previous directory*/
+
+						if(dir->DIR_FstClusLO == ADDR_ZERO && dir->DIR_FstClusHI == ADDR_ZERO){
+							free(dir);
+							return ROOT_DIR_CLUS_NUM;
+						}
+
+						/* move to directory stored in ".." */
+						uint32_t newClus = ADDR_ZERO;
+						newClus = newClus | dir->DIR_FstClusHI << HEX_TEN;
+						newClus = newClus | dir->DIR_FstClusLO;
+						free(dir);
+
+						return newClus;
+					}
+					else{
+						printf("Error: Folder not found.\n");
+						return curDirClus;
+					}
+				}
+				else if(strcmp(dir->DIR_Name, arg) == 0)
+				{
+					/* FOUND DIRECTORY MATCH, 	
+					move to directory stored in the directory */ 
+					uint32_t newClus = ADDR_ZERO;
+					newClus = newClus | dir->DIR_FstClusHI << 16;
+					newClus = newClus | dir->DIR_FstClusLO;
+					free(dir);
+					
+					return newClus;
+				}
+							
+			}
+			free(dir);
+
+		}
+	}
+
+	/* Fetch next cluster */
+	uint32_t nextClus = getNextClus(h,curDirClus);
+
+	if (nextClus < EOC) {
+		nextClus = doCD(h, nextClus,buffer);
+		return nextClus;
+	}
+	
+	return curDirClus;
+
+}
+
+void doDownload(fat32Head *h, uint32_t curDirClus, char buffer[BUF_SIZE]){
+
+	/* acquire GET file name argument */
+	char* arg = strtok(buffer, SPACE_CHAR);
+	arg = strtok(NULL, SPACE_CHAR);
+
+	/* no directory specified */
+	if(arg == NULL){
+		printf("Error: File not found\n");
+		return;
+	}
+
+	size_t check;
+	fat32Dir * dir = h->dir;
+	uint32_t firstSecOfClus = getFirstSectorOfClus(h,curDirClus);
+
+	/* set seek to first sector of cluster */
+	check = lseek(fileDesc, firstSecOfClus, SEEK_SET); 
+	    if(check == SEEK_ERR){
+		perror("doDownload seek error");
+		exit(EXIT_FAILURE);
+	}   
+	
+	int i;
+	for(i=0; i < h->bs->BPB_BytesPerSec; i+=sizeof(fat32Dir)){
+
+		/* read in current directory */
+		check = read(fileDesc, dir, sizeof(fat32Dir));
+		if( check < SINGLE_READ){
+			perror("doDownload read error");
+			exit(EXIT_FAILURE);
+		}
+
+		/* process file name */
+		formatDirectory(dir); 
+
+		if(dir->DIR_Attr != ATTR_DIRECTORY){
+			
+			if(strcmp(dir->DIR_Name, arg) == 0)
+			{
+				/* FOUND FILE MATCH */
+				
+				/* get file cluster number */
+				uint32_t newClus = ADDR_ZERO;
+				newClus = newClus | dir->DIR_FstClusHI << HEX_TEN;
+				newClus = newClus | dir->DIR_FstClusLO;
+				
+				/*  file cluster number found, download the file */
+
+				//destination file name			
+				char * dest = arg; 
+
+				/*open output file to read/write,
+				  creating file if file DNE*/
+				int outFD = open(dest, O_CREAT|O_RDWR|O_TRUNC, FILE_PERMISSION);  
+
+				if(outFD == -1){
+					perror("Out file descriptor error");
+					exit(EXIT_FAILURE);
+				}
+
+				writeFile(h,newClus,outFD,dir->DIR_FileSize);
+
+				close(outFD);
+
+				printf("\nDone.\n");
+				return;
+			}					 
+		}
+	}
+	printf("Error: File not found\n");
+
+}
+
+void writeFile(fat32Head *h, uint32_t clusNum, int outFD, int fileSize){
+
+	/* Stop writing File if end of data is reached */  		
+	if(fileSize < 0) return;
+
+	size_t error;	
+	uint32_t bytesPerClus = h->bs->BPB_SecPerClus * h->bs->BPB_BytesPerSec; /* cluster size in bytes */
+	uint32_t firstSecOfClus = getFirstSectorOfClus(h,clusNum);
+	
+	/* byte array to write memory, allocated to cluster size */
+	uint32_t * str = malloc(bytesPerClus); 
+						
+	if(str == NULL){
+		perror("writeFile malloc error");
+		exit(EXIT_FAILURE);
+	}	
+					
+	/* seek to the data portion of cluster */
+	error = lseek(fileDesc, (off_t)firstSecOfClus, SEEK_SET);
+
+	if( error == -1 ){
+		perror("writefile seek");
+		exit(EXIT_FAILURE);
+	}
+					
+	/* last cluster, only write remaining data, 
+	   instead of the whole cluster */
+	if(fileSize <= bytesPerClus){
+
+		/* read in current cluster, only the remaining bytes
+		   Instead of passing whole cluster size as the size, pass 
+		   in the remaining data in the last cluster as the size */
+		error = read(fileDesc,(void*)str, fileSize);
+
+		if(error == -1){
+			perror("writefile read error");
+			exit(EXIT_FAILURE);
+		}
+
+		//write current cluster with size of remaining bytes	
+		error = write(outFD, (void*)str, fileSize); 							
+
+		if(error == -1){
+			perror("writefile write error");
+			exit(EXIT_FAILURE);
+		}
+
+		//deallocate byte array
+		free(str);
+
+		return;
+
+	}
+
+	/* Not Last Cluster, so read data in the entire current cluster */ 
+    error = read(fileDesc,(void*)str, bytesPerClus);
+
+	if(error == -1){
+		perror("writefile read error");
+		exit(EXIT_FAILURE);
+	} 
+
+	/* write data in the current cluster */ 
+	error = write(outFD, (void*)str, bytesPerClus); 
+
+
+	if(error == -1){
+		perror("writefile write error");
+		exit(EXIT_FAILURE);
+	}
+
+	//deallocate byte array					
+	free(str);
+
+	/* Fetch next cluster */
+	uint32_t nextClus = getNextClus(h,clusNum);
+
+	/* Recursively write the file again for the next cluster */
+	if (nextClus < EOC) { 	
+		writeFile(h, nextClus, outFD, fileSize-bytesPerClus);
+	}
+			
+}
+
+uint32_t getNextClus(fat32Head *h, uint32_t clusNum){
+	
+	uint32_t fatOffset = clusNum * OFFSET_MULTIPLIER;
+	uint32_t thisFatSecNum  = h->bs->BPB_RsvdSecCnt +  (fatOffset / h->bs->BPB_BytesPerSec);
+	uint32_t thisFatEntOffset = fatOffset % h->bs->BPB_BytesPerSec;
+
+	uint32_t * buffer = readFromOffset(fileDesc,h, thisFatSecNum, thisFatEntOffset);
+			
+	uint32_t nextClus = buffer[0];
+	nextClus = nextClus & CLUSENT_AND_OPERATOR;
+	nextClus = nextClus & FETCH_AND_OPERATOR;
+	nextClus = nextClus | (buffer[0] & CLUSENT_AND_OPERATOR);
+
+	if(buffer!= NULL) free(buffer);
+
+	return nextClus;
+}
+
+uint32_t getFirstSectorOfClus(fat32Head *h, uint32_t clusterNumber){
+	
+	uint32_t rootDirSectors = ((h->bs->BPB_RootEntCnt * INT_32) + (h->bs->BPB_BytesPerSec - 1)) / h->bs->BPB_BytesPerSec;
+	uint32_t firstDataSector = h->bs->BPB_RsvdSecCnt + (h->bs->BPB_NumFATs * h->bs->BPB_FATSz32) + rootDirSectors;
+	uint32_t firstSectorOfCluster = ((clusterNumber - 2) * h->bs->BPB_SecPerClus) + firstDataSector;
+	
+	return firstSectorOfCluster * h->bs->BPB_BytesPerSec;
+}
+
+void formatDirectory(fat32Dir* dir)
+{
+	//DIRECTORIES
+	if (dir->DIR_Attr == ATTR_DIRECTORY){
+
+		char * newName = dir->DIR_Name;
+		int i,j;
+
+		//Copy name exclusing space
+		for(i=0,j=0; i<DIR_NAME_LENGTH; i++,j++){
+			if(!isspace(dir->DIR_Name[i])){ 
+
+				newName[j] = dir->DIR_Name[i];
+			}
+			else{
+				j--;
+			}
+		}
+		newName[j] = '\0';
+
+		//remove remaining spaces as precautionary measure
+		removeSpace(newName, dir->DIR_Name);
+	}
+
+	//FILES
+	else if (dir->DIR_Attr == ATTR_ARCHIVE){
+		
+		//replace first space with dot and remove the remaining spaces
+		char *space = strstr(dir->DIR_Name,SPACE_CHAR);
+		if (space && isspace(*space) ){
+			*space = '.';
+		}
+
+		//space not found in the length of name
+		if(space >= dir->DIR_Name + DIR_NAME_LENGTH){
+			char * src = dir->DIR_Name;
+			addDot(src, dir->DIR_Name);
+			*(space+1) = '\0';			
+		}	
+
+		char * src = dir->DIR_Name;
+		removeSpace(src, dir->DIR_Name);
+
+		//add null terminator
+		if(space && space+EXT_DIST != NULL){
+			*(space+EXT_DIST) = '\0';
+		}
+    }
+	
+	else {
+		//replace space with dot
+		char *space = strstr(dir->DIR_Name,SPACE_CHAR);
+		if ((space) && isspace(*space) && isalpha(*(space+1))){
+			if(space <= (dir->DIR_Name + DIR_NAME_LENGTH-1))
+				*space = '.';
+			else{
+				char * src = dir->DIR_Name;
+				addDot(src, dir->DIR_Name);
+			}
+				
+		}
+				
+		//replace next space with null terminator
+		space = strstr(dir->DIR_Name,SPACE_CHAR);
+		if ((space) && isspace(*space)){
+			*space = '\0';
+		}
+
+		//add null terminator
+		if(space && space+EXT_DIST != NULL){
+			*(space+EXT_DIST) = '\0';
+		}
+		
+	}
+
+}
+
+void removeSpace(char* source, char* dest){
+	 do {
+        while (isspace(*dest)) {
+            ++dest;
+        }
+    }while ((*source++ = *dest++));
+}
+
+void addDot(char* source, char* dest){
+	 int len =  strlen(source);
+	 int i = len-EXT_DIST+1;
+	 char cur = '.', temp;
+
+	 if(len > DIR_NAME_LENGTH) i = DIR_NAME_LENGTH-EXT_DIST+1;
+	
+	 for(; i< len+1; i++){
+		 temp = source[i];
+		 source[i] = cur;
+		 cur = temp;
+	 }
+}
+
+uint64_t getFreeSpace(fat32Head * h){
+
+	uint32_t numFreeClus = h->fsi->FSI_Free_Count;
+	uint64_t freeSecBytes = 0;
+
+	if(numFreeClus == FREE_CLUS_UNKNOWN){
+		printf("error: free count unknown\n");
+		return freeSecBytes;
+	}
+	
+	else{
+		uint64_t totFreeSec = (uint64_t) numFreeClus* (uint64_t)h->bs->BPB_SecPerClus;
+		freeSecBytes =  totFreeSec * (uint64_t) h->bs->BPB_BytesPerSec;
+		return freeSecBytes;
+	}
+}
+
+int checkName(char s[])
+{
+    unsigned char cur;
+
+    while (( cur = *s ) && (isalnum(cur) || (cur >= VALID_ASCII_START && cur <= VALID_ASCII_END)) ) ++s;
+
+    return *s == '\0'; 
+}
+
+
+
