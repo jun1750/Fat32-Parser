@@ -1,5 +1,6 @@
-# FAT32-Parser
 
+ # FAT32-Parser
+A Library console that reads and parses data from a FAT32 file system. Includes a shell to traverse through files and folders. 
  
  # Usage
  
